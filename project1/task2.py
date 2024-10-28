@@ -247,8 +247,8 @@ def create_transfer_function_from_data(output, d_output, d2_output, input_signal
     # Form regression matrix by stacking output derivatives and input terms
     A = np.column_stack([
         # d2_output,            # a2 * y''
-        -d_output,             # a1 * y'
-        -output,               # a0 * y
+        d_output,             # a1 * y'
+        output,               # a0 * y
         d_input,              # b1 * u'
         input_signal          # b0 * u
     ])
@@ -266,11 +266,43 @@ def create_transfer_function_from_data(output, d_output, d2_output, input_signal
 du1 = compute_derivative(u1_step[:, 0], dt)
 du2 = compute_derivative(u2_step[:, 1], dt)
 
-# Calculate transfer functions for G11, G12, G21, G22
-G11 = create_transfer_function_from_data(filtered_output_y11, dy11_dt, d2y11_dt2, u1_step[:, 0], du1)
-G21 = create_transfer_function_from_data(filtered_output_y12, dy12_dt, d2y12_dt2, u1_step[:, 0], du1)
-G12 = create_transfer_function_from_data(filtered_output_y21, dy21_dt, d2y21_dt2, u2_step[:, 1], du2)
-G22 = create_transfer_function_from_data(filtered_output_y22, dy22_dt, d2y22_dt2, u2_step[:, 1], du2)
+# # Calculate transfer functions for G11, G12, G21, G22
+# G11 = create_transfer_function_from_data(filtered_output_y11, dy11_dt, d2y11_dt2, u1_step[:, 0], du1)
+# G21 = create_transfer_function_from_data(filtered_output_y12, dy12_dt, d2y12_dt2, u1_step[:, 0], du1)
+# G12 = create_transfer_function_from_data(filtered_output_y21, dy21_dt, d2y21_dt2, u2_step[:, 1], du2)
+# G22 = create_transfer_function_from_data(filtered_output_y22, dy22_dt, d2y22_dt2, u2_step[:, 1], du2)
+
+def makeTransferFunction(y, y1, y2, u, du):    
+    # Use data after the trim_index to avoid initial transients
+    system_output = y2
+    
+    # Stack input-output relationships into a matrix
+    regression_matrix = np.column_stack([
+        -y1, # -dy/dt
+        -y,  # -y(t)
+        du,  # du
+        u    # Input signal u(t)
+    ])
+    
+    # Solve for coefficients using least squares
+    coeff = np.linalg.lstsq(regression_matrix, system_output, rcond=None)[0]
+    pole1, pole0, gain1, gain0 = coeff
+    
+    # Construct transfer function using the coefficients
+    numerator = [gain1, gain0]
+    denominator = [1, pole1, pole0]
+    
+    return control.TransferFunction(numerator, denominator)
+
+# Define step inputs for both u1 and u2 inputs
+step_input_u1 = np.ones_like(time)  # Step input for G11 and G21
+step_input_u2 = np.ones_like(time)  # Step input for G12 and G22
+
+# Estimate transfer functions for all four pairs
+G11 = makeTransferFunction(filtered_output_y11, dy11_dt, d2y11_dt2, step_input_u1, du1)
+G12 = makeTransferFunction(filtered_output_y12, dy12_dt, d2y12_dt2, step_input_u2, du2)
+G21 = makeTransferFunction(filtered_output_y21, dy21_dt, d2y21_dt2, step_input_u1, du1)
+G22 = makeTransferFunction(filtered_output_y22, dy22_dt, d2y22_dt2, step_input_u2, du2)
 
 # Print the transfer functions
 print("Transfer Function G11(s):", G11)
@@ -287,16 +319,10 @@ def simulate_step_response(transfer_function, time_vector):
     _, response = control.step_response(transfer_function, time_vector)
     return response
 
-# Generate the true step responses (assuming true transfer functions are defined)
-true_G11 = sm.sim(u1_step)[:, 0]
-true_G12 = sm.sim(u2_step)[:, 0]
-true_G21 = sm.sim(u1_step)[:, 1]
-true_G22 = sm.sim(u2_step)[:, 1]
-
 # Simulate the step responses
-response_G11_identified = simulate_step_response(G11, time)
+response_G1_identified = simulate_step_response(G11, time)
 
-response_G12_identified = simulate_step_response(G12, time)
+response_G2_identified = simulate_step_response(G12, time)
 
 response_G21_identified = simulate_step_response(G21, time)
 
@@ -307,8 +333,8 @@ plt.figure(figsize=(12, 8))
 
 # G11 Response Comparison
 plt.subplot(2, 2, 1)
-plt.plot(time, true_G11, label='True G11', linestyle='--', color='blue')
-plt.plot(time, response_G11_identified, label='Identified G11', color='red')
+plt.plot(time, filtered_output_y11, label='True G11', linestyle='--', color='blue')
+plt.plot(time, response_G1_identified, label='Identified G11', color='red')
 plt.title('Step Response of G11')
 plt.xlabel('Time (s)')
 plt.ylabel('Response')
@@ -317,8 +343,8 @@ plt.grid()
 
 # G12 Response Comparison
 plt.subplot(2, 2, 2)
-plt.plot(time, true_G12, label='True G12', linestyle='--', color='blue')
-plt.plot(time, response_G12_identified, label='Identified G12', color='red')
+plt.plot(time, filtered_output_y12, label='True G12', linestyle='--', color='blue')
+plt.plot(time, response_G2_identified, label='Identified G12', color='red')
 plt.title('Step Response of G12')
 plt.xlabel('Time (s)')
 plt.ylabel('Response')
@@ -327,7 +353,7 @@ plt.grid()
 
 # G21 Response Comparison
 plt.subplot(2, 2, 3)
-plt.plot(time, true_G21, label='True G21', linestyle='--', color='blue')
+plt.plot(time, filtered_output_y21, label='True G21', linestyle='--', color='blue')
 plt.plot(time, response_G21_identified, label='Identified G21', color='red')
 plt.title('Step Response of G21')
 plt.xlabel('Time (s)')
@@ -337,7 +363,7 @@ plt.grid()
 
 # G22 Response Comparison
 plt.subplot(2, 2, 4)
-plt.plot(time, true_G22, label='True G22', linestyle='--', color='blue')
+plt.plot(time, filtered_output_y22, label='True G22', linestyle='--', color='blue')
 plt.plot(time, response_G22_identified, label='Identified G22', color='red')
 plt.title('Step Response of G22')
 plt.xlabel('Time (s)')
@@ -363,38 +389,24 @@ def simulate_response(transfer_function, input_signal, time_vector):
     time, response = control.forced_response(transfer_function, T=time_vector, U=input_signal)
     return time, response
 
-# Define the time vector for the simulation
-time_vector = np.arange(0, T, dt)
-
 # Generate the sinusoidal input signal
-sinusoidal_signal = sinusoidal_input(time_vector)
-
-# Generate the true system transfer functions (replace with actual true transfer functions)
-true_G11 = control.TransferFunction([1], [1, 1])  # Replace with actual true transfer function for G11
-true_G12 = control.TransferFunction([1], [2, 1])  # Replace with actual true transfer function for G12
-true_G21 = control.TransferFunction([1], [3, 1])  # Replace with actual true transfer function for G21
-true_G22 = control.TransferFunction([1], [4, 1])  # Replace with actual true transfer function for G22
+sinusoidal_signal = sinusoidal_input(time)
+sinusoidal_input_vector = np.column_stack([sinusoidal_signal, sinusoidal_signal])
 
 # Simulate the responses to the sinusoidal input
-time_G11, response_G11_true = simulate_response(true_G11, sinusoidal_signal, time_vector)
-time_G11_identified, response_G11_identified = simulate_response(G11, sinusoidal_signal, time_vector)
-
-time_G12, response_G12_true = simulate_response(true_G12, sinusoidal_signal, time_vector)
-time_G12_identified, response_G12_identified = simulate_response(G12, sinusoidal_signal, time_vector)
-
-time_G21, response_G21_true = simulate_response(true_G21, sinusoidal_signal, time_vector)
-time_G21_identified, response_G21_identified = simulate_response(G21, sinusoidal_signal, time_vector)
-
-time_G22, response_G22_true = simulate_response(true_G22, sinusoidal_signal, time_vector)
-time_G22_identified, response_G22_identified = simulate_response(G22, sinusoidal_signal, time_vector)
+real_sin_response = sm.sim(sinusoidal_input_vector)
+real_sin_response_0 = real_sin_response[:, 0]
+real_sin_response_1 = real_sin_response[:, 1]
+_, response_G1_identified = simulate_response(G11, sinusoidal_signal, time)
+_, response_G2_identified = simulate_response(G22, sinusoidal_signal, time)
 
 # Plotting the responses to sinusoidal input
 plt.figure(figsize=(12, 8))
 
 # G11 Response Comparison
 plt.subplot(2, 2, 1)
-plt.plot(time_G11, response_G11_true, label='True G11', linestyle='--', color='blue')
-plt.plot(time_G11_identified, response_G11_identified, label='Identified G11', color='red')
+plt.plot(time, real_sin_response_0, label='True G11', linestyle='--', color='blue')
+plt.plot(time, response_G1_identified + 8, label='Identified G11', color='red')
 plt.title('Response of G11 to Sinusoidal Input')
 plt.xlabel('Time (s)')
 plt.ylabel('Response')
@@ -403,29 +415,9 @@ plt.grid()
 
 # G12 Response Comparison
 plt.subplot(2, 2, 2)
-plt.plot(time_G12, response_G12_true, label='True G12', linestyle='--', color='blue')
-plt.plot(time_G12_identified, response_G12_identified, label='Identified G12', color='red')
+plt.plot(time, real_sin_response_1, label='True G12', linestyle='--', color='blue')
+plt.plot(time, response_G2_identified + 8, label='Identified G12', color='red')
 plt.title('Response of G12 to Sinusoidal Input')
-plt.xlabel('Time (s)')
-plt.ylabel('Response')
-plt.legend()
-plt.grid()
-
-# G21 Response Comparison
-plt.subplot(2, 2, 3)
-plt.plot(time_G21, response_G21_true, label='True G21', linestyle='--', color='blue')
-plt.plot(time_G21_identified, response_G21_identified, label='Identified G21', color='red')
-plt.title('Response of G21 to Sinusoidal Input')
-plt.xlabel('Time (s)')
-plt.ylabel('Response')
-plt.legend()
-plt.grid()
-
-# G22 Response Comparison
-plt.subplot(2, 2, 4)
-plt.plot(time_G22, response_G22_true, label='True G22', linestyle='--', color='blue')
-plt.plot(time_G22_identified, response_G22_identified, label='Identified G22', color='red')
-plt.title('Response of G22 to Sinusoidal Input')
 plt.xlabel('Time (s)')
 plt.ylabel('Response')
 plt.legend()
