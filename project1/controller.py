@@ -26,8 +26,8 @@ class Controller:
         
 
     def calculate_acceleration(self, y, filter=True):
-        y1 = y[0][0]
-        y2 = y[1][0]
+        y1 = y[0]
+        y2 = y[1]
         # Approximate y_dot
         dy1 = (y1 - self.prev_y1) / self.dt
         dy2 = (y2 - self.prev_y2) / self.dt

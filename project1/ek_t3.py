@@ -138,6 +138,9 @@ def simulate_system(robot, controller, T, dt, initial_conditions, use_filter=Tru
     # Initial conditions
     x1 = initial_conditions[:2].reshape(-1, 1)
     x2 = initial_conditions[2:].reshape(-1, 1)
+
+    print ("inital X1: ", x1)
+    print ("inital X2: ", x2)
     
     # Create state-space systems for simulation
     sys1 = control.ss(robot.A1, robot.B1, robot.C1, robot.D1)
